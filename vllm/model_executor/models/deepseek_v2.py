@@ -1379,6 +1379,16 @@ class DeepseekV2Model(nn.Module):
             if "rotary_emb.inv_freq" in name:
                 continue
 
+            # Skip layers not in the model (e.g. in single-layer benchmarks or PP)
+            if "model.layers." in name:
+                parts = name.split(".")
+                try:
+                    layer_idx = int(parts[2])
+                    if not (self.model.start_layer <= layer_idx < self.model.end_layer):
+                        continue
+                except (ValueError, IndexError):
+                    pass
+
             spec_layer = get_spec_layer_idx_from_weight_name(self.config, name)
             if spec_layer is not None:
                 continue  # skip spec decode layers for main model
