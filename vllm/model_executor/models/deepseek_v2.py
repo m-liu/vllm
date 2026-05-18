@@ -1380,11 +1380,10 @@ class DeepseekV2Model(nn.Module):
                 continue
 
             # Skip layers not in the model (e.g. in single-layer benchmarks or PP)
-            if "model.layers." in name:
-                parts = name.split(".")
+            if "layers." in name:
                 try:
-                    layer_idx = int(parts[2])
-                    if not (self.model.start_layer <= layer_idx < self.model.end_layer):
+                    layer_idx = int(name.split("layers.")[1].split(".")[0])
+                    if not (self.start_layer <= layer_idx < self.end_layer):
                         continue
                 except (ValueError, IndexError):
                     pass
