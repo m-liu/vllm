@@ -434,6 +434,11 @@ class OutputProcessor:
         self.lora_states = LoRARequestStates(log_stats)
         self.tracing_enabled = tracing_enabled
 
+        import os
+        self.print_seq_lens = os.getenv("VLLM_PRINT_BATCH_SEQ_LENS") == "1"
+        self.step_counter = 0
+        self.prev_output_lens: dict[str, int] = {}
+
     def get_num_unfinished_requests(self):
         return len(self.request_states)
 
@@ -603,12 +608,31 @@ class OutputProcessor:
 
         request_outputs: list[RequestOutput | PoolingRequestOutput] = []
         reqs_to_abort: list[str] = []
+
+        batch_all_pairs = []
+
         for engine_core_output in engine_core_outputs:
             req_id = engine_core_output.request_id
             req_state = self.request_states.get(req_id)
             if req_state is None:
                 # Ignore output for already-aborted request.
                 continue
+
+            if self.print_seq_lens:
+                prompt_len = req_state.prompt_len
+                new_token_ids = engine_core_output.new_token_ids or []
+                output_len_before = len(req_state.detokenizer.output_token_ids) if req_state.detokenizer else 0
+                output_len = output_len_before + len(new_token_ids)
+
+                if req_id not in self.prev_output_lens:
+                    q_len = prompt_len
+                else:
+                    q_len = output_len - self.prev_output_lens[req_id]
+
+                self.prev_output_lens[req_id] = output_len
+                kv_len = prompt_len + output_len
+
+                batch_all_pairs.append(f"[{kv_len}, {q_len}]")
 
             # 1) Compute stats for this iteration.
             self._update_stats_from_output(
@@ -687,6 +711,12 @@ class OutputProcessor:
                     if self.tracing_enabled:
                         self.do_tracing(engine_core_output, req_state, iteration_stats)
 
+        if self.print_seq_lens and len(engine_core_outputs) > 0:
+            batch_sz = len(engine_core_outputs)
+            pairs_str = ", ".join(batch_all_pairs)
+            print(f"Step {self.step_counter}: b={batch_sz} {{ {pairs_str} }}")
+            self.step_counter += 1
+
         return OutputProcessorOutput(
             request_outputs=request_outputs,
             reqs_to_abort=reqs_to_abort,
@@ -695,6 +725,7 @@ class OutputProcessor:
     def _finish_request(self, req_state: RequestState) -> None:
         req_id = req_state.request_id
         self.request_states.pop(req_id)
+        self.prev_output_lens.pop(req_id, None)
 
         internal_ids = self.external_req_ids[req_state.external_req_id]
         internal_ids.remove(req_id)
