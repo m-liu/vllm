@@ -248,9 +248,7 @@ class Scheduler(SchedulerInterface):
 
         self.has_mamba_layers = kv_cache_config.has_mamba_layers
         self.needs_kv_cache_zeroing = kv_cache_config.needs_kv_cache_zeroing
-        self.need_mamba_block_aligned_split = (
-            self.has_mamba_layers and self.cache_config.mamba_cache_mode == "align"
-        )
+        self.need_mamba_block_aligned_split = True
         self.perf_metrics: ModelMetrics | None = None
         if self.log_stats and vllm_config.observability_config.enable_mfu_metrics:
             self.perf_metrics = ModelMetrics(vllm_config)
@@ -305,7 +303,8 @@ class Scheduler(SchedulerInterface):
             # Additionally, when Eagle mode is enabled, FullAttn prunes the last
             # matching block. To prevent this from causing a Mamba cache miss, the
             # last chunk must be not smaller than `block_size`.
-            block_size = self.cache_config.block_size
+            #block_size = self.cache_config.block_size
+            block_size = 1024
             last_cache_position = request.num_tokens - request.num_tokens % block_size
             # eagle prune
             if self.use_eagle:
